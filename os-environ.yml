@@ -1,0 +1,158 @@
+heat_template_version: 2018-03-02
+description: Environment for deploying OpenShift
+
+parameters:
+    buildhost_image:
+        type: string
+        label: Image name or ID
+        description: Image to used for creating a buildhost instance
+        default: CentOS-7
+    buildhost_flavor:
+        type: string
+        label: Flavor
+        description: Flavor to run a build instance
+        default: n1.small
+    os_node_image:
+        type: string
+        label: Image name or ID
+        description: Image to used for creating an OpenShift node
+        default: CentOS-7
+    os_node_flavor:
+        type: string
+        label: Flavor
+        description: Flavor to run a build instance
+        default: d1.test-1
+    sshkey:
+        type: string
+        label: Key name
+        description: SSH key for accessing instances
+        default: dmitrii-key1
+    public_network:
+        type: string
+        label: External Network
+        description: External network to get access to the OpenStack nodes
+        default: virtz-management
+    volume_type:
+        type: string
+        label: Ceph Storage volume type
+        description: Volume Type CephStorage
+        default: CephStorage
+    os_node_vol1_size:
+        type: number
+        label: OS Node Volume Size
+        description: Size of an attached volume 1
+        default: 25
+
+
+
+resources:
+    private_net1:
+        type: OS::Neutron::Net
+        properties:
+            name: Network-1
+    private_subnet1:
+        type: OS::Neutron::Subnet
+        properties:
+            name: LAN-1
+            network_id: { get_resource: private_net1 }
+            cidr: 10.0.0.0/24
+            gateway_ip: ""
+            allocation_pools:
+                - start: 10.0.0.100
+                  end: 10.0.0.254
+            enable_dhcp: true
+
+    os_node_1_vol1: { type: "OS::Cinder::Volume", properties: { name: os_node_1_vol1, size: { get_param: os_node_vol1_size }, volume_type: { get_param: volume_type }}}
+    os_node_2_vol1: { type: "OS::Cinder::Volume", properties: { name: os_node_2_vol1, size: { get_param: os_node_vol1_size }, volume_type: { get_param: volume_type }}}
+    os_node_3_vol1: { type: "OS::Cinder::Volume", properties: { name: os_node_3_vol1, size: { get_param: os_node_vol1_size }, volume_type: { get_param: volume_type }}}
+    os_node_1_vol1_attachment: { type: "OS::Cinder::VolumeAttachment", properties: { volume_id: { get_resource: os_node_1_vol1 }, instance_uuid: { get_resource: os_node_1_server }}}
+    os_node_2_vol1_attachment: { type: "OS::Cinder::VolumeAttachment", properties: { volume_id: { get_resource: os_node_2_vol1 }, instance_uuid: { get_resource: os_node_2_server }}}
+    os_node_3_vol1_attachment: { type: "OS::Cinder::VolumeAttachment", properties: { volume_id: { get_resource: os_node_3_vol1 }, instance_uuid: { get_resource: os_node_3_server }}}
+
+
+    os_node_1_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    os_node_2_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    os_node_3_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    buildhost_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    os_node_1_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
+    os_node_2_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
+    os_node_3_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
+    buildhost_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
+
+    buildhost:
+        type: OS::Nova::Server
+        properties:
+            name: buildhost
+            image: { get_param: buildhost_image }
+            flavor: { get_param: buildhost_flavor }
+            key_name: { get_param: sshkey }
+            networks: [ port: { get_resource: buildhost_port1 }, port: { get_resource: buildhost_port2 } ]
+
+    os_node_1_server:
+        type: OS::Nova::Server
+        properties:
+            name: os_node_01
+            image: { get_param: os_node_image }
+            flavor: { get_param: os_node_flavor }
+            key_name: { get_param: sshkey }
+            networks: [ port: { get_resource: os_node_1_port1 }, port: { get_resource: os_node_1_port2 } ]
+    os_node_2_server:
+        type: OS::Nova::Server
+        properties:
+            name: os_node_02
+            image: { get_param: os_node_image }
+            flavor: { get_param: os_node_flavor }
+            key_name: { get_param: sshkey }
+            networks: [ port: { get_resource: os_node_2_port1 }, port: { get_resource: os_node_2_port2 } ]
+    os_node_3_server:
+        type: OS::Nova::Server
+        properties:
+            name: os_node_03
+            image: { get_param: os_node_image }
+            flavor: { get_param: os_node_flavor }
+            key_name: { get_param: sshkey }
+            networks: [ port: { get_resource: os_node_3_port1 }, port: { get_resource: os_node_3_port2 } ]
+
+
+    secgroup_external:
+        type: OS::Neutron::SecurityGroup
+        properties:
+            description: OpenShift external access rules
+            name: sg-external-rules
+            rules:
+                - { direction: ingress, ethertype: IPv4, port_range_max: 22, port_range_min: 22, protocol: tcp, remote_ip_prefix: 0.0.0.0/0 }
+                - { direction: ingress, ethertype: IPv4, port_range_min: 0, port_range_max: 255, protocol: icmp, remote_ip_prefix: 0.0.0.0/0 }
+                - { direction: egress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: tcp, remote_ip_prefix: 0.0.0.0/0 }
+                - { direction: egress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: udp, remote_ip_prefix: 0.0.0.0/0 }
+                - { direction: egress, ethertype: IPv4, port_range_min: 0, port_range_max: 255, protocol: icmp, remote_ip_prefix: 0.0.0.0/0 }
+    secgroup_internal:
+        type: OS::Neutron::SecurityGroup
+        properties:
+            description: OpenShift internal rules (allow all)
+            name: sg-internal-rules
+            rules:
+                - { direction: ingress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: tcp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
+                - { direction: ingress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: udp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
+                - { direction: ingress, ethertype: IPv4, port_range_min: 0, port_range_max: 255, protocol: icmp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
+                - { direction: egress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: tcp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
+                - { direction: egress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: udp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
+                - { direction: egress, ethertype: IPv4, port_range_min: 0, port_range_max: 255, protocol: icmp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
+
+
+#    external_router: { type: "OS::Neutron::Router", properties: { external_gateway_info: { network: { get_param: external_network_name }}}}
+#    router_net1: { type: "OS::Neutron::RouterInterface", properties: { router_id: { get_resource: external_router }, subnet_id: { get_resource: private_net1 }}}
+
+outputs:
+    buildhost_ip:
+        description: IP addresses of the buildhost instance
+        value: { get_attr: [ buildhost, networks ]}
+    os_node_1_ip:
+        description: IP addresses of the os_node_1
+        value: { get_attr: [ os_node_1_server, networks ]}
+    os_node_2_ip:
+        description: IP addresses of the os_node_2
+        value: { get_attr: [ os_node_2_server, networks ]}
+    os_node_3_ip:
+        description: IP addresses of the os_node_3
+        value: { get_attr: [ os_node_3_server, networks ]}
+
