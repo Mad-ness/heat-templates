@@ -1,5 +1,5 @@
 heat_template_version: 2018-03-02
-description: Environment for deploying OpenShift
+description: Stack for deploying OpenShift
 
 parameters:
     buildhost_image:
@@ -20,8 +20,13 @@ parameters:
     os_node_flavor:
         type: string
         label: Flavor
-        description: Flavor to run a build instance
-        default: d1.test-1
+        description: Flavor to run a OpenShift node instance
+        default: d1.os-node
+    os_master_flavor:
+        type: string
+        label: Flavor
+        description: Flavor to run an OpenShift master instance
+        default: d1.os-master
     sshkey:
         type: string
         label: Key name
@@ -46,6 +51,13 @@ parameters:
 
 
 resources:
+
+    ephemeral_sshkey:
+        type: OS::Nova::KeyPair
+        properties:
+            save_private_key: true
+            name: stack-access-key
+
     private_net1:
         type: OS::Neutron::Net
         properties:
@@ -73,11 +85,24 @@ resources:
     os_node_1_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
     os_node_2_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
     os_node_3_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    os_master_1_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    os_master_2_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
+    os_master_3_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
     buildhost_port1: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }, security_groups: [ { get_resource: secgroup_external }]}}
     os_node_1_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
     os_node_2_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
     os_node_3_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
+    os_master_1_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }}}
+    os_master_2_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }}}
+    os_master_3_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_param: public_network }}}
     buildhost_port2: { type: "OS::Neutron::Port", properties: { network_id: { get_resource: private_net1 }}}
+
+    os_nodes_servergroup:
+        type: OS::Nova::ServerGroup
+        properties:
+            name: srvgroup_os_nodes
+            policies:
+                - anti-affinity
 
     buildhost:
         type: OS::Nova::Server
@@ -85,7 +110,7 @@ resources:
             name: buildhost
             image: { get_param: buildhost_image }
             flavor: { get_param: buildhost_flavor }
-            key_name: { get_param: sshkey }
+            key_name: { get_resource: ephemeral_sshkey }
             networks: [ port: { get_resource: buildhost_port1 }, port: { get_resource: buildhost_port2 } ]
 
     os_node_1_server:
@@ -94,24 +119,57 @@ resources:
             name: os_node_01
             image: { get_param: os_node_image }
             flavor: { get_param: os_node_flavor }
-            key_name: { get_param: sshkey }
+            key_name: { get_resource: ephemeral_sshkey }
             networks: [ port: { get_resource: os_node_1_port1 }, port: { get_resource: os_node_1_port2 } ]
+            scheduler_hints: { group: { get_resource: os_nodes_servergroup }}
     os_node_2_server:
         type: OS::Nova::Server
         properties:
             name: os_node_02
             image: { get_param: os_node_image }
             flavor: { get_param: os_node_flavor }
-            key_name: { get_param: sshkey }
+            key_name: { get_resource: ephemeral_sshkey }
             networks: [ port: { get_resource: os_node_2_port1 }, port: { get_resource: os_node_2_port2 } ]
+            scheduler_hints: { group: { get_resource: os_nodes_servergroup }}
     os_node_3_server:
         type: OS::Nova::Server
         properties:
             name: os_node_03
             image: { get_param: os_node_image }
             flavor: { get_param: os_node_flavor }
-            key_name: { get_param: sshkey }
+            key_name: { get_resource: ephemeral_sshkey }
             networks: [ port: { get_resource: os_node_3_port1 }, port: { get_resource: os_node_3_port2 } ]
+            scheduler_hints: { group: { get_resource: os_nodes_servergroup }}
+
+    os_master_1_server:
+        type: OS::Nova::Server
+        properties:
+            name: os_master_01
+            image: { get_param: os_node_image }
+            flavor: { get_param: os_master_flavor }
+            key_name: { get_resource: ephemeral_sshkey }
+            networks: [ port: { get_resource: os_master_1_port1 }, port: { get_resource: os_master_1_port2 } ]
+            scheduler_hints: { group: { get_resource: os_nodes_servergroup }}
+    os_master_2_server:
+        type: OS::Nova::Server
+        properties:
+            name: os_master_02
+            image: { get_param: os_node_image }
+            flavor: { get_param: os_master_flavor }
+            key_name: { get_resource: ephemeral_sshkey }
+            networks: [ port: { get_resource: os_master_2_port1 }, port: { get_resource: os_master_2_port2 } ]
+            scheduler_hints: { group: { get_resource: os_nodes_servergroup }}
+    os_master_3_server:
+        type: OS::Nova::Server
+        properties:
+            name: os_master_03
+            image: { get_param: os_node_image }
+            flavor: { get_param: os_master_flavor }
+            key_name: { get_resource: ephemeral_sshkey }
+            networks: [ port: { get_resource: os_master_3_port1 }, port: { get_resource: os_master_3_port2 } ]
+            scheduler_hints: { group: { get_resource: os_nodes_servergroup }}
+
+
 
 
     secgroup_external:
@@ -138,11 +196,11 @@ resources:
                 - { direction: egress, ethertype: IPv4, port_range_min: 1, port_range_max: 65535, protocol: udp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
                 - { direction: egress, ethertype: IPv4, port_range_min: 0, port_range_max: 255, protocol: icmp, remote_ip_prefix: { get_attr: [ private_subnet1, cidr ]}}
 
-
-#    external_router: { type: "OS::Neutron::Router", properties: { external_gateway_info: { network: { get_param: external_network_name }}}}
-#    router_net1: { type: "OS::Neutron::RouterInterface", properties: { router_id: { get_resource: external_router }, subnet_id: { get_resource: private_net1 }}}
-
 outputs:
+    private_key:
+        description: Access key to all nodes
+        value: { get_attr: [ ephemeral_sshkey, private_key ]}
+
     buildhost_ip:
         description: IP addresses of the buildhost instance
         value: { get_attr: [ buildhost, networks ]}
@@ -156,3 +214,12 @@ outputs:
         description: IP addresses of the os_node_3
         value: { get_attr: [ os_node_3_server, networks ]}
 
+    os_master_1_ip:
+        description: IP addresses of the os_master_1
+        value: { get_attr: [ os_master_1_server, networks ]}
+    os_master_2_ip:
+        description: IP addresses of the os_master_2
+        value: { get_attr: [ os_master_2_server, networks ]}
+    os_master_3_ip:
+        description: IP addresses of the os_master_3
+        value: { get_attr: [ os_master_3_server, networks ]}
